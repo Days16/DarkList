@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useListStore } from '../store/listStore'
 import { useTaskStore } from '../store/taskStore'
 import { useAuthStore } from '../store/authStore'
@@ -15,6 +15,11 @@ export default function Sidebar({ onSettings }: Props): JSX.Element {
   const setUnlocked = useAuthStore((s) => s.setUnlocked)
   const [showNew, setShowNew] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [version, setVersion] = useState<string>('')
+
+  useEffect(() => {
+    window.api.getVersion().then(setVersion).catch(() => {})
+  }, [])
 
   const pendingCount = (listId: string | null): number =>
     tasks.filter((t) => !t.done && (listId === null ? true : t.list_id === listId)).length
@@ -109,6 +114,10 @@ export default function Sidebar({ onSettings }: Props): JSX.Element {
             <span>🔒</span>
             <span>Bloquear</span>
           </button>
+          
+          <div className="mt-2 text-center text-[10px] text-text-secondary/30 font-medium tooltip" title="Versión de DarkList">
+            v{version}
+          </div>
         </div>
       </aside>
 

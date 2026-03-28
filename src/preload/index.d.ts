@@ -21,6 +21,8 @@ declare global {
       getSettings(): Promise<AppSettings>
       setSettings(data: Partial<AppSettings>): Promise<AppSettings>
 
+      getVersion(): Promise<string>
+
       onLock(cb: () => void): () => void
     }
   }

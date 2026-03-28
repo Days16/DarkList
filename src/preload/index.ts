@@ -38,6 +38,10 @@ const api = {
   setSettings: (data: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:set', data),
 
+  // App details
+  getVersion: (): Promise<string> => 
+    ipcRenderer.invoke('app:getVersion'),
+
   // App events
   onLock: (cb: () => void): (() => void) => {
     const handler = (): void => cb()

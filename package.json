@@ -14,7 +14,8 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.8.0",
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.0.8",
@@ -40,6 +41,13 @@
   "build": {
     "appId": "com.darklist.app",
     "productName": "DarkList",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Days166",
+        "repo": "DarkList"
+      }
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "resources"

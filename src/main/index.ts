@@ -1,4 +1,6 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, ipcMain } from 'electron'
+import electronUpdater from 'electron-updater'
+const { autoUpdater } = electronUpdater
 import { join } from 'path'
 import { initDb } from './db'
 import { initNotifications } from './notifications'
@@ -84,7 +86,44 @@ function createTray(): void {
     }
   ])
   tray.setContextMenu(menu)
-  tray.on('click', () => mainWindow?.show())
+    tray.on('click', () => mainWindow?.show())
+}
+
+function initAutoUpdater(): void {
+  // Evitar la descarga automática para poder interactuar con el usuario
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  // Cuando hay una actualización disponible
+  autoUpdater.on('update-available', (info) => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Actualización disponible',
+      message: `La versión ${info.version} de DarkList está disponible. ¿Deseas descargarla ahora?`,
+      buttons: ['Actualizar', 'Más tarde']
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.downloadUpdate()
+      }
+    })
+  })
+
+  // Cuando la actualización ya fue descargada
+  autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Instalar Actualización',
+      message: 'La actualización se ha descargado. La aplicación se reiniciará para instalarla.',
+      buttons: ['Reiniciar y Actualizar', 'Más tarde']
+    }).then((result) => {
+      if (result.response === 0) {
+        autoUpdater.quitAndInstall()
+      }
+    })
+  })
+
+  // Buscar actualizaciones sin notificaciones intrusivas del sistema operativo por defecto (usamos las nuestras)
+  autoUpdater.checkForUpdates()
 }
 
 app.whenReady().then(() => {
@@ -93,9 +132,11 @@ app.whenReady().then(() => {
   setupListHandlers()
   setupAuthHandlers()
   setupSettingsHandlers()
+  ipcMain.handle('app:getVersion', () => app.getVersion())
   createWindow()
   createTray()
   initNotifications()
+  initAutoUpdater()
 })
 
 app.on('window-all-closed', () => {
