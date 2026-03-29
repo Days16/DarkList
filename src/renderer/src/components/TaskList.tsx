@@ -61,10 +61,17 @@ function applyFiltersAndSort(
   }
 
   result.sort((a, b) => {
-    // Manual sort_order takes precedence
+    if (sort === 'due_date') {
+      if (a.due_date === null && b.due_date === null) return 0
+      if (a.due_date === null) return 1
+      if (b.due_date === null) return -1
+      return a.due_date - b.due_date
+    }
+    if (sort === 'priority') {
+      return b.priority - a.priority
+    }
+    // 'created' — Manual sort_order takes precedence
     if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
-    
-    // Fallback to creation date if sort_order is the same
     return b.created_at - a.created_at
   })
 
@@ -108,24 +115,26 @@ export default function TaskList(): JSX.Element {
     }
   }
 
-  const requestDelete = (task: Task): void => {
+  const requestDelete = async (task: Task): Promise<void> => {
     if (deleteTimer) clearTimeout(deleteTimer)
     const index = useTaskStore.getState().tasks.findIndex(t => t.id === task.id)
     removeTask(task.id)
     setPendingDelete(task, index !== -1 ? index : 0)
-    const t = setTimeout(async () => {
-      await window.api.deleteTask(task.id)
+    await window.api.deleteTask(task.id)
+    const t = setTimeout(() => {
       setPendingDelete(null)
       setDeleteTimer(null)
     }, 3000)
     setDeleteTimer(t)
   }
 
-  const undoDelete = (): void => {
+  const undoDelete = async (): Promise<void> => {
     if (!pendingDelete) return
     if (deleteTimer) clearTimeout(deleteTimer)
+    const taskToRestore = pendingDelete
     useTaskStore.getState().restoreTask()
     setDeleteTimer(null)
+    await window.api.restoreTask(taskToRestore)
   }
 
   if (visible.length === 0) {
@@ -144,7 +153,7 @@ export default function TaskList(): JSX.Element {
         onDragEnd={handleDragEnd}
         modifiers={[restrictToVerticalAxis]}
       >
-        <div className="py-2">
+        <div className="px-2 py-2">
           <SortableContext items={pending.map((t: Task) => t.id)} strategy={verticalListSortingStrategy}>
             {pending.map((t: Task) => {
               const subtasks = visible.filter((st: Task) => st.parent_id === t.id)

@@ -14,7 +14,7 @@ export default function FilterBar(): JSX.Element {
   ]
 
   const SORTS: { id: SortType; label: string }[] = [
-    { id: 'created', label: t('history') },
+    { id: 'created', label: t('sort_created') },
     { id: 'due_date', label: t('due_date') },
     { id: 'priority', label: t('priority') }
   ]

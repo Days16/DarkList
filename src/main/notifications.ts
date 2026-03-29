@@ -1,6 +1,12 @@
 import { Notification } from 'electron'
+import Store from 'electron-store'
 import { getDb } from './db'
 import { Task } from '../shared/types'
+
+function getLang(): string {
+  const store = new Store({ name: 'darklist-config' })
+  return (store.get('settings') as any)?.language || 'es'
+}
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -14,12 +20,14 @@ export function initNotifications(): void {
     .all(now) as Record<string, unknown>[]
   
   if (missed.length > 0) {
-    const body = missed.length === 1 
-      ? `Recordatorio perdido: ${missed[0].title}`
-      : `Tienes ${missed.length} recordatorios pendientes de revisar.`
-    
+    const lang = getLang()
+    const body = missed.length === 1
+      ? (lang === 'en' ? `Missed reminder: ${missed[0].title}` : `Recordatorio perdido: ${missed[0].title}`)
+      : (lang === 'en' ? `You have ${missed.length} pending reminders to review.` : `Tienes ${missed.length} recordatorios pendientes de revisar.`)
+    const title = lang === 'en' ? 'DarkList — Missed reminders' : 'DarkList — Recordatorios perdidos'
+
     if (Notification.isSupported()) {
-      new Notification({ title: 'DarkList — Recordatorios perdidos', body }).show()
+      new Notification({ title, body }).show()
     }
     
     // Mark missed as notified
@@ -75,6 +83,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     recurrence: (row.recurrence as 'daily' | 'weekly' | 'monthly' | null) ?? null,
     sort_order: (row.sort_order as number) ?? 0,
     notified: (row.notified as number) ?? 0,
+    completed_at: (row.completed_at as number | null) ?? null,
     created_at: row.created_at as number,
     updated_at: row.updated_at as number
   }

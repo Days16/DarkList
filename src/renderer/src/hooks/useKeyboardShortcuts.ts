@@ -3,7 +3,7 @@ import { useUiStore } from '../store/uiStore'
 import { useAuthStore } from '../store/authStore'
 
 export function useKeyboardShortcuts(): void {
-  const { triggerFocusSearch, triggerFocusTaskInput } = useUiStore()
+  const { triggerFocusSearch, triggerFocusTaskInput, hideContextMenu } = useUiStore()
   const setUnlocked = useAuthStore((s) => s.setUnlocked)
 
   useEffect(() => {
@@ -28,11 +28,13 @@ export function useKeyboardShortcuts(): void {
         setUnlocked(false)
       }
 
-      // Escape: Cerrar modales (handled by the browser/OS usually, 
-      // but if we want to force something we could)
+      // Escape: Cerrar context menu
+      if (e.key === 'Escape') {
+        hideContextMenu()
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [triggerFocusSearch, triggerFocusTaskInput, setUnlocked])
+  }, [triggerFocusSearch, triggerFocusTaskInput, setUnlocked, hideContextMenu])
 }

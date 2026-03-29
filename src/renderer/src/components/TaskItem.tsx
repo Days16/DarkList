@@ -24,8 +24,8 @@ interface Props {
 }
 
 export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element {
-  const { updateTaskItem, addTask } = useTaskStore()
-  const { showContextMenu, t } = useUiStore()
+  const { updateTaskItem, addTask, tasks } = useTaskStore()
+  const { showContextMenu, t, searchQuery } = useUiStore()
   const lists = useListStore((s) => s.lists)
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(task.title)
@@ -140,6 +140,24 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
 
   const list = lists.find((l) => l.id === task.list_id)
 
+  // MEJORA-3: subtask counter
+  const subtasks = tasks.filter((t) => t.parent_id === task.id)
+  const doneSubtasks = subtasks.filter((t) => t.done).length
+
+  // MEJORA-4: highlight search query in title
+  const renderTitle = (): JSX.Element => {
+    if (!searchQuery || task.done) return <>{task.title}</>
+    const idx = task.title.toLowerCase().indexOf(searchQuery.toLowerCase())
+    if (idx === -1) return <>{task.title}</>
+    return (
+      <>
+        {task.title.slice(0, idx)}
+        <mark className="bg-accent/30 text-accent rounded not-italic">{task.title.slice(idx, idx + searchQuery.length)}</mark>
+        {task.title.slice(idx + searchQuery.length)}
+      </>
+    )
+  }
+
   const dueDateStr = task.due_date
     ? new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
     : null
@@ -152,11 +170,11 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
       ref={setNodeRef}
       style={style}
       onContextMenu={handleContextMenu}
-      className={`group flex flex-col gap-0.5 px-4 py-3 hover:bg-text-primary/[0.03] transition-all duration-200 ease-out relative`}
+      className={`group flex flex-col gap-1 px-3 py-2.5 rounded-card transition-colors duration-fast hover:bg-elevated/50 relative`}
     >
       {/* Priority Accent Bar */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-[2px] opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full opacity-0 group-hover:opacity-70 transition-opacity duration-fast"
         style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
       />
 
@@ -180,12 +198,15 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
         {/* Checkbox */}
         <button
           onClick={toggle}
-          className={`mt-0.5 w-4.5 h-4.5 rounded-lg border flex-shrink-0 flex items-center justify-center
-            transition-all duration-300 transform active:scale-90
-            ${task.done ? 'bg-accent border-accent shadow-lg shadow-accent/20' : 'border-text-secondary/20 hover:border-accent hover:bg-accent/5'}`}
+          className={`mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center
+            transition-all duration-200 active:scale-90
+            ${task.done
+              ? 'bg-accent border-accent'
+              : 'border-text-secondary/50 hover:border-accent hover:bg-accent/10'
+            }`}
         >
           {task.done && (
-            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="animate-in fade-in zoom-in duration-300">
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
               <path d="M1 4.5L3.5 7L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
@@ -211,7 +232,7 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
               className={`text-sm block truncate
               ${task.done ? 'line-through text-text-secondary cursor-default' : 'text-text-primary cursor-text hover:text-accent/90'}`}
             >
-              {task.title}
+              {renderTitle()}
             </span>
           )}
 
@@ -243,6 +264,15 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
               <span className="text-[10px] text-accent/70 flex items-center gap-1">
                 <span>↻</span>
                 <span className="capitalize">{task.recurrence}</span>
+              </span>
+            )}
+            {/* Subtask counter badge */}
+            {subtasks.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border
+                ${doneSubtasks === subtasks.length
+                  ? 'border-green-500/40 text-green-400'
+                  : 'border-border-color text-text-secondary'}`}>
+                ✓ {doneSubtasks}/{subtasks.length}
               </span>
             )}
             {/* Notes indicator */}
@@ -343,9 +373,10 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
                     type="datetime-local"
                     defaultValue={
                       task.reminder_at
-                        ? new Date(task.reminder_at)
-                          .toISOString()
-                          .slice(0, 16)
+                        ? (() => {
+                            const d = new Date(task.reminder_at)
+                            return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+                          })()
                         : ''
                     }
                     onChange={(e) => setReminder(e.target.value)}

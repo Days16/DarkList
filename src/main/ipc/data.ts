@@ -1,8 +1,14 @@
 import { ipcMain, dialog, app } from 'electron'
 import fs from 'fs'
 import https from 'https'
+import Store from 'electron-store'
 import { getDb } from '../db'
 import { join } from 'path'
+
+function getLang(): string {
+  const store = new Store({ name: 'darklist-config' })
+  return (store.get('settings') as any)?.language || 'es'
+}
 
 export function setupDataHandlers(): void {
   ipcMain.handle('data:export', async (event) => {
@@ -14,11 +20,12 @@ export function setupDataHandlers(): void {
       tasks,
       lists,
       exported_at: Date.now(),
-      version: '1.1.0'
+      version: app.getVersion()
     }
 
+    const lang = getLang()
     const { filePath } = await dialog.showSaveDialog({
-      title: 'Exportar datos de DarkList',
+      title: lang === 'en' ? 'Export DarkList data' : 'Exportar datos de DarkList',
       defaultPath: `darklist_backup_${new Date().toISOString().split('T')[0]}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
@@ -31,8 +38,9 @@ export function setupDataHandlers(): void {
   })
 
   ipcMain.handle('data:import', async (event) => {
+    const lang = getLang()
     const { filePaths } = await dialog.showOpenDialog({
-      title: 'Importar datos a DarkList',
+      title: lang === 'en' ? 'Import data to DarkList' : 'Importar datos a DarkList',
       filters: [{ name: 'JSON', extensions: ['json'] }],
       properties: ['openFile']
     })
@@ -44,17 +52,23 @@ export function setupDataHandlers(): void {
       const data = JSON.parse(content)
       
       if (!data.tasks || !data.lists) {
-        throw new Error('Formato de archivo inválido')
+        throw new Error(lang === 'en' ? 'Invalid file format' : 'Formato de archivo inválido')
       }
 
       const db = getDb()
-      
+
       // Confirmation
+      const isEn = lang === 'en'
+      const confirmTitle = isEn ? 'Confirm overwrite' : 'Confirmar sobreescritura'
+      const confirmMsg = isEn
+        ? 'This will overwrite existing tasks and lists with matching IDs. Continue?'
+        : 'Se sobreescribiran tareas y listas con el mismo ID. Continuar?'
+      const confirmButtons = isEn ? ['Cancel', 'Confirm'] : ['Cancelar', 'Confirmar']
       const { response } = await dialog.showMessageBox({
         type: 'warning',
-        title: 'Confirmar importación',
-        message: '¿Estás seguro de que quieres importar los datos? Esto sobrescribirá las tareas y listas duplicadas por ID.',
-        buttons: ['Cancelar', 'Importar']
+        title: confirmTitle,
+        message: confirmMsg,
+        buttons: confirmButtons
       })
 
       if (response === 0) return { success: false }
@@ -65,8 +79,8 @@ export function setupDataHandlers(): void {
       `)
       
       const insertTask = db.prepare(`
-        INSERT OR REPLACE INTO tasks (id, list_id, parent_id, title, notes, done, priority, due_date, reminder_at, recurrence, sort_order, notified, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO tasks (id, list_id, parent_id, title, notes, done, priority, due_date, reminder_at, recurrence, sort_order, notified, completed_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       const transaction = db.transaction(() => {
@@ -87,6 +101,7 @@ export function setupDataHandlers(): void {
             task.recurrence,
             task.sort_order,
             task.notified,
+            task.completed_at ?? null,
             task.created_at,
             task.updated_at
           )

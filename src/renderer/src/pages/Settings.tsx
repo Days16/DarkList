@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { useUiStore } from '../store/uiStore'
+import { useTaskStore } from '../store/taskStore'
+import { useListStore } from '../store/listStore'
+import ConfirmModal from '../components/ConfirmModal'
 
 const ACCENT_COLORS = [
   { label: 'violet', value: '#7c6af7' },
@@ -10,22 +13,17 @@ const ACCENT_COLORS = [
   { label: 'gray', value: '#6b7280' }
 ]
 
-const AUTO_LOCK_OPTIONS: { label: string; value: 0 | 5 | 15 | 30 }[] = [
-  { label: 'Nunca', value: 0 },
-  { label: '5 minutos', value: 5 },
-  { label: '15 minutos', value: 15 },
-  { label: '30 minutos', value: 30 }
-]
+const AUTO_LOCK_VALUES: (0 | 5 | 15 | 30)[] = [0, 5, 15, 30]
 
 interface Props {
   onBack: () => void
 }
 
 export default function Settings({ onBack }: Props): JSX.Element {
-  const { 
-    accentColor, autoLockMinutes, theme, language, backupFrequencyDays, 
+  const {
+    accentColor, autoLockMinutes, theme, language, backupFrequencyDays,
     syncUrl, syncUser, syncPass,
-    saveSettings, t 
+    saveSettings, t
   } = useUiStore()
 
   // PIN change
@@ -33,6 +31,16 @@ export default function Settings({ onBack }: Props): JSX.Element {
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
   const [pinMsg, setPinMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  // Notification banner (replaces alert)
+  const [notification, setNotification] = useState<{ msg: string; ok: boolean } | null>(null)
+  const notify = (msg: string, ok: boolean): void => {
+    setNotification({ msg, ok })
+    setTimeout(() => setNotification(null), 3500)
+  }
+
+  // Confirm pull from cloud (replaces native confirm)
+  const [showConfirmPull, setShowConfirmPull] = useState(false)
 
   const changePin = async (): Promise<void> => {
     setPinMsg(null)
@@ -44,6 +52,52 @@ export default function Settings({ onBack }: Props): JSX.Element {
       setOldPin(''); setNewPin(''); setConfirmPin('')
     } else {
       setPinMsg({ type: 'err', text: res.error ?? t('pin_error') })
+    }
+  }
+
+  const handleExport = async (): Promise<void> => {
+    try {
+      const res = await (window.api as any).exportData()
+      if (res.success) notify(`✓ ${res.filePath}`, true)
+      else notify(t('sync_error'), false)
+    } catch {
+      notify(t('sync_error'), false)
+    }
+  }
+
+  const handleImport = async (): Promise<void> => {
+    try {
+      const res = await (window.api as any).importData()
+      if (res.success) {
+        notify(`✓ ${t('import_json')}`, true)
+        const [tasks, lists] = await Promise.all([window.api.getTasks(), window.api.getLists()])
+        useTaskStore.getState().setTasks(tasks)
+        useListStore.getState().setLists(lists)
+      } else if (res.error) {
+        notify(res.error, false)
+      }
+    } catch {
+      notify(t('sync_error'), false)
+    }
+  }
+
+  const handlePush = async (): Promise<void> => {
+    if (!syncUrl) return
+    const res = await (window.api as any).syncPush(syncUrl, syncUser || '', syncPass || '')
+    notify(res.success ? t('sync_success') : `${t('sync_error')}: ${res.error}`, res.success)
+  }
+
+  const handlePullConfirmed = async (): Promise<void> => {
+    setShowConfirmPull(false)
+    if (!syncUrl) return
+    const res = await (window.api as any).syncPull(syncUrl, syncUser || '', syncPass || '')
+    if (res.success) {
+      notify(t('sync_success'), true)
+      const [tasks, lists] = await Promise.all([window.api.getTasks(), window.api.getLists()])
+      useTaskStore.getState().setTasks(tasks)
+      useListStore.getState().setLists(lists)
+    } else {
+      notify(`${t('sync_error')}: ${res.error}`, false)
     }
   }
 
@@ -60,19 +114,35 @@ export default function Settings({ onBack }: Props): JSX.Element {
         <h1 className="text-text-primary font-semibold">{t('settings')}</h1>
       </div>
 
+      {/* Notification banner */}
+      {notification && (
+        <div className={`mx-6 mt-4 px-4 py-2.5 rounded-card text-sm flex items-center gap-2
+          ${notification.ok ? 'bg-green-500/15 text-green-400 border border-green-500/20' : 'bg-red-500/15 text-red-400 border border-red-500/20'}`}>
+          <span>{notification.ok ? '✓' : '✕'}</span>
+          <span className="truncate">{notification.msg}</span>
+        </div>
+      )}
+
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 max-w-md">
         {/* Language */}
         <section>
           <h2 className="text-text-primary text-sm font-medium mb-3">{t('language')}</h2>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {[
               { label: 'Español', value: 'es' },
-              { label: 'English', value: 'en' }
+              { label: 'English', value: 'en' },
+              { label: 'Français', value: 'fr' },
+              { label: 'Deutsch', value: 'de' },
+              { label: 'Português', value: 'pt' },
+              { label: 'Italiano', value: 'it' }
             ].map((l) => (
               <button
                 key={l.value}
-                onClick={() => saveSettings({ language: l.value as any })}
-                className={`flex-1 px-3 py-1.5 rounded-input text-sm transition-colors duration-fast
+                onClick={async () => {
+                  await saveSettings({ language: l.value as any })
+                  ;(window.api as any).rebuildTray?.()
+                }}
+                className={`px-3 py-1.5 rounded-input text-sm transition-colors duration-fast
                   ${language === l.value
                     ? 'bg-accent text-white'
                     : 'bg-elevated text-text-secondary hover:text-text-primary'}`}
@@ -123,16 +193,16 @@ export default function Settings({ onBack }: Props): JSX.Element {
         <section>
           <h2 className="text-text-primary text-sm font-medium mb-3">{t('auto_lock')}</h2>
           <div className="flex gap-2 flex-wrap">
-            {AUTO_LOCK_OPTIONS.map((o) => (
+            {AUTO_LOCK_VALUES.map((v) => (
               <button
-                key={o.value}
-                onClick={() => saveSettings({ autoLockMinutes: o.value })}
+                key={v}
+                onClick={() => saveSettings({ autoLockMinutes: v })}
                 className={`px-3 py-1.5 rounded-input text-sm transition-colors duration-fast
-                  ${autoLockMinutes === o.value
+                  ${autoLockMinutes === v
                     ? 'bg-accent text-white'
                     : 'bg-elevated text-text-secondary hover:text-text-primary'}`}
               >
-                {o.value === 0 ? t('never') : `${o.value} ${t('minutes')}`}
+                {v === 0 ? t('never') : `${v} ${t('minutes')}`}
               </button>
             ))}
           </div>
@@ -193,7 +263,7 @@ export default function Settings({ onBack }: Props): JSX.Element {
             <p className="text-text-secondary text-xs">
               {t('backup_desc')}
             </p>
-            
+
             <div className="bg-elevated/50 p-3 rounded-card border border-border-subtle">
               <h3 className="text-text-primary text-[10px] font-bold uppercase tracking-widest mb-2">{t('auto_backup')}</h3>
               <div className="flex gap-1.5">
@@ -206,8 +276,8 @@ export default function Settings({ onBack }: Props): JSX.Element {
                     key={f.value}
                     onClick={() => saveSettings({ backupFrequencyDays: f.value })}
                     className={`flex-1 py-1 rounded text-[10px] border transition-all ${
-                      backupFrequencyDays === f.value 
-                        ? 'bg-accent border-accent text-white font-bold' 
+                      backupFrequencyDays === f.value
+                        ? 'bg-accent border-accent text-white font-bold'
                         : 'border-border-color text-text-secondary'
                     }`}
                   >
@@ -219,30 +289,13 @@ export default function Settings({ onBack }: Props): JSX.Element {
 
             <div className="flex gap-2">
               <button
-                onClick={async () => {
-                  try {
-                    const res = await (window.api as any).exportData()
-                    if (res.success) alert(`Ok: ${res.filePath}`)
-                  } catch (e) {
-                    alert('Error')
-                  }
-                }}
+                onClick={handleExport}
                 className="flex-1 px-4 py-2 bg-elevated text-text-primary rounded-input text-sm hover:bg-elevated/80 transition-colors border border-border-color"
               >
                 {t('export_json')}
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    const res = await (window.api.importData())
-                    if (res.success) {
-                      alert('Success')
-                      window.location.reload()
-                    }
-                  } catch (e) {
-                    alert('Error')
-                  }
-                }}
+                onClick={handleImport}
                 className="flex-1 px-4 py-2 bg-elevated text-text-primary rounded-input text-sm hover:bg-elevated/80 transition-colors border border-border-color"
               >
                 {t('import_json')}
@@ -278,30 +331,16 @@ export default function Settings({ onBack }: Props): JSX.Element {
                 className="flex-1 bg-elevated text-text-primary rounded-input px-3 py-2 text-sm outline-none border border-transparent focus:border-accent"
               />
             </div>
-            
+
             <div className="flex gap-2 mt-1">
               <button
-                onClick={async () => {
-                  if (!syncUrl) return
-                  const res = await (window.api as any).syncPush(syncUrl, syncUser || '', syncPass || '')
-                  alert(res.success ? t('sync_success') : `${t('sync_error')}: ${res.error}`)
-                }}
+                onClick={handlePush}
                 className="flex-1 px-4 py-2 bg-accent text-white rounded-input text-sm hover:opacity-90 transition-opacity"
               >
                 {t('push_to_cloud')}
               </button>
               <button
-                onClick={async () => {
-                  if (!syncUrl) return
-                  if (!confirm(t('backup_desc'))) return
-                  const res = await (window.api as any).syncPull(syncUrl, syncUser || '', syncPass || '')
-                  if (res.success) {
-                    alert(t('sync_success'))
-                    window.location.reload()
-                  } else {
-                    alert(`${t('sync_error')}: ${res.error}`)
-                  }
-                }}
+                onClick={() => syncUrl && setShowConfirmPull(true)}
                 className="flex-1 px-4 py-2 bg-elevated text-text-primary rounded-input text-sm hover:bg-elevated/80 transition-colors border border-border-color"
               >
                 {t('pull_from_cloud')}
@@ -310,6 +349,16 @@ export default function Settings({ onBack }: Props): JSX.Element {
           </div>
         </section>
       </div>
+
+      {showConfirmPull && (
+        <ConfirmModal
+          message={t('sync_pull_confirm')}
+          onConfirm={handlePullConfirmed}
+          onCancel={() => setShowConfirmPull(false)}
+          confirmLabel={language === 'es' ? 'Descargar' : 'Download'}
+          danger={false}
+        />
+      )}
     </div>
   )
 }

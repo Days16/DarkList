@@ -18,13 +18,17 @@ export function initDb(): void {
 }
 
 function runBackup(dbPath: string): void {
+  const configStore = new Store({ name: 'darklist-config' })
+  const backupFrequencyDays = (configStore.get('backupFrequencyDays', 7) as number)
+
+  if (backupFrequencyDays === 0) return
+
   const store = new Store({ name: 'darklist-backup-state' })
   const lastBackup = store.get('lastBackup', 0) as number
   const now = Date.now()
-  
-  // Configuración por defecto: cada 7 días
-  const sevenDays = 7 * 24 * 60 * 60 * 1000
-  if (now - lastBackup < sevenDays) return
+
+  const interval = backupFrequencyDays * 24 * 60 * 60 * 1000
+  if (now - lastBackup < interval) return
 
   const backupDir = join(app.getPath('documents'), 'DarkList', 'backups')
   if (!existsSync(backupDir)) {

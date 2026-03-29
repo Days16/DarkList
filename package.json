@@ -1,6 +1,6 @@
 {
   "name": "darklist",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Minimalista dark todo list offline para Windows 11",
   "license": "GPL-3.0",
   "author": "Days16",
@@ -52,7 +52,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "Days166",
+        "owner": "Days16",
         "repo": "DarkList"
       }
     ],

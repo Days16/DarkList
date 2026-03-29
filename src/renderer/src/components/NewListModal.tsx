@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useListStore } from '../store/listStore'
+import { useUiStore } from '../store/uiStore'
 
 const COLORS = [
   '#7c6af7', // violet
@@ -18,8 +19,15 @@ interface Props {
 
 export default function NewListModal({ onClose }: Props): JSX.Element {
   const addList = useListStore((s) => s.addList)
+  const { t } = useUiStore()
   const [name, setName] = useState('')
   const [color, setColor] = useState(COLORS[0])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
 
   const submit = async (): Promise<void> => {
     const trimmed = name.trim()
@@ -35,14 +43,14 @@ export default function NewListModal({ onClose }: Props): JSX.Element {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="bg-surface rounded-card p-6 w-80 flex flex-col gap-5">
-        <h2 className="text-text-primary font-semibold">Nueva lista</h2>
+        <h2 className="text-text-primary font-semibold">{t('new_list')}</h2>
 
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder="Nombre de la lista"
+          placeholder={t('rename_list_prompt').replace(':', '')}
           className="bg-elevated text-text-primary rounded-input px-3 py-2 text-sm outline-none
             border border-transparent focus:border-accent transition-colors"
         />
@@ -64,7 +72,7 @@ export default function NewListModal({ onClose }: Props): JSX.Element {
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            Cancelar
+            {t('cancel')}
           </button>
           <button
             onClick={submit}
@@ -72,7 +80,7 @@ export default function NewListModal({ onClose }: Props): JSX.Element {
             className="px-4 py-2 text-sm bg-accent text-white rounded-input
               disabled:opacity-40 hover:opacity-90 transition-opacity"
           >
-            Crear
+            {t('new_list')}
           </button>
         </div>
       </div>

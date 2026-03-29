@@ -7,6 +7,7 @@ declare global {
       createTask(data: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task>
       updateTask(id: string, data: Partial<Task>): Promise<Task>
       deleteTask(id: string): Promise<{ success: boolean }>
+      restoreTask(task: Task): Promise<Task>
 
       getLists(): Promise<List[]>
       createList(data: { name: string; color: string }): Promise<List>
@@ -23,6 +24,7 @@ declare global {
 
       getVersion(): Promise<string>
       toggleWidget(): void
+      rebuildTray(): void
       exportToCalendar(task: any): Promise<void>
       exportData(): Promise<{ success: boolean; filePath?: string }>
       importData(): Promise<{ success: boolean; error?: string }>

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, ipcMain } from 'electron'
-import electronUpdater from 'electron-updater'
-const { autoUpdater } = electronUpdater
+import https from 'https'
+import { writeFileSync } from 'fs'
+import Store from 'electron-store'
 import { join } from 'path'
 import { initDb } from './db'
 import { initNotifications } from './notifications'
@@ -18,6 +19,9 @@ let isQuitting = false
 
 // Guardar los datos y la configuración en Documentos/DarkList
 app.setPath('userData', join(app.getPath('documents'), 'DarkList'))
+
+// Forzar nombre de la app para la barra de tareas
+app.name = 'DarkList'
 
 function getAppIcon(): Electron.NativeImage {
   const iconPath = join(__dirname, '../../resources/icon.png')
@@ -108,15 +112,23 @@ function createWidgetWindow(): void {
   widgetWindow.on('closed', () => { widgetWindow = null })
 }
 
+function getTrayLabels(): { open: string; lock: string; quit: string } {
+  const configStore = new Store({ name: 'darklist-config' })
+  const lang = (configStore.get('settings') as any)?.language || 'es'
+  if (lang === 'en') return { open: 'Open', lock: 'Lock', quit: 'Quit' }
+  return { open: 'Abrir', lock: 'Bloquear', quit: 'Salir' }
+}
+
 function createTray(): void {
+  const labels = getTrayLabels()
   tray = new Tray(getAppIcon())
   tray.setToolTip('DarkList')
   const menu = Menu.buildFromTemplate([
-    { label: 'Abrir', click: () => mainWindow?.show() },
-    { label: 'Bloquear', click: () => mainWindow?.webContents.send('app:lock') },
+    { label: labels.open, click: () => mainWindow?.show() },
+    { label: labels.lock, click: () => mainWindow?.webContents.send('app:lock') },
     { type: 'separator' },
     {
-      label: 'Salir',
+      label: labels.quit,
       click: () => {
         isQuitting = true
         app.quit()
@@ -124,44 +136,62 @@ function createTray(): void {
     }
   ])
   tray.setContextMenu(menu)
-    tray.on('click', () => mainWindow?.show())
+  tray.on('click', () => mainWindow?.show())
 }
 
 function initAutoUpdater(): void {
-  // Evitar la descarga automática para poder interactuar con el usuario
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  const currentVersion = app.getVersion()
+  const owner = 'Days16'
+  const repo = 'DarkList'
+  const url = `https://api.github.com/repos/${owner}/${repo}/releases/latest`
 
-  // Cuando hay una actualización disponible
-  autoUpdater.on('update-available', (info) => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Actualización disponible',
-      message: `La versión ${info.version} de DarkList está disponible. ¿Deseas descargarla ahora?`,
-      buttons: ['Actualizar', 'Más tarde']
-    }).then((result) => {
-      if (result.response === 0) {
-        autoUpdater.downloadUpdate()
+  const options = {
+    headers: {
+      'User-Agent': 'DarkList-App'
+    }
+  }
+
+  https.get(url, options, (res) => {
+    let data = ''
+    res.on('data', (chunk) => (data += chunk))
+    res.on('end', () => {
+      try {
+        const release = JSON.parse(data)
+        const latestVersion = release.tag_name.replace('v', '')
+
+        // Simple version comparison (e.g., 1.1.0 > 1.0.0)
+        const v1 = currentVersion.split('.').map(Number)
+        const v2 = latestVersion.split('.').map(Number)
+
+        let isNewer = false
+        for (let i = 0; i < 3; i++) {
+          if ((v2[i] || 0) > (v1[i] || 0)) {
+            isNewer = true
+            break
+          }
+          if ((v2[i] || 0) < (v1[i] || 0)) break
+        }
+
+        if (isNewer) {
+          dialog.showMessageBox({
+            type: 'info',
+            title: 'Actualización disponible',
+            message: `¡Hay una nueva versión de DarkList disponible (v${latestVersion})!`,
+            detail: '¿Quieres ir a la página de descargas para bajar el nuevo instalador (.exe)?',
+            buttons: ['Descargar ahora', 'Más tarde']
+          }).then((result) => {
+            if (result.response === 0) {
+              shell.openExternal(`https://github.com/${owner}/${repo}/releases/latest`)
+            }
+          })
+        }
+      } catch (e) {
+        console.error('Error al comprobar actualizaciones:', e)
       }
     })
+  }).on('error', (err) => {
+    console.error('Fallo de red al buscar actualizaciones:', err)
   })
-
-  // Cuando la actualización ya fue descargada
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Instalar Actualización',
-      message: 'La actualización se ha descargado. La aplicación se reiniciará para instalarla.',
-      buttons: ['Reiniciar y Actualizar', 'Más tarde']
-    }).then((result) => {
-      if (result.response === 0) {
-        autoUpdater.quitAndInstall()
-      }
-    })
-  })
-
-  // Buscar actualizaciones sin notificaciones intrusivas del sistema operativo por defecto (usamos las nuestras)
-  autoUpdater.checkForUpdates()
 }
 
 app.whenReady().then(() => {
@@ -173,6 +203,10 @@ app.whenReady().then(() => {
   setupDataHandlers()
   setupMenuHandlers()
   ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.on('tray:rebuild', () => {
+    if (tray) { tray.destroy(); tray = null }
+    createTray()
+  })
   ipcMain.on('app:toggleWidget', () => {
     if (widgetWindow) {
       widgetWindow.close()
@@ -199,7 +233,7 @@ app.whenReady().then(() => {
 
     const tempDir = app.getPath('temp')
     const filePath = join(tempDir, `task_${task.id}.ics`)
-    require('fs').writeFileSync(filePath, icsContent)
+    writeFileSync(filePath, icsContent)
     return shell.openPath(filePath)
   })
   createWindow()

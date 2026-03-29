@@ -87,7 +87,7 @@ export default function App(): JSX.Element {
         <div className="flex flex-col items-center gap-2">
           <h1 className="text-text-primary font-semibold text-lg tracking-wider">DARKLIST</h1>
           <div className="w-32 h-1 bg-text-primary/5 rounded-full overflow-hidden">
-            <div className="h-full bg-accent w-1/2 rounded-full" />
+            <div className="h-full bg-accent rounded-full animate-pulse w-full" />
           </div>
         </div>
       </div>

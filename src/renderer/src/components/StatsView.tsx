@@ -2,48 +2,64 @@ import { useMemo } from 'react'
 import { useTaskStore } from '../store/taskStore'
 import { useUiStore } from '../store/uiStore'
 
+const DAY_LABELS: Record<string, string[]> = {
+  es: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'],
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+  fr: ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'],
+  de: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+  pt: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+  it: ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
+}
+
 export default function StatsView(): JSX.Element {
   const tasks = useTaskStore((s) => s.tasks)
-  const { t } = useUiStore()
+  const { t, language } = useUiStore()
 
   const stats = useMemo(() => {
-    const now = Date.now()
     const todayStart = new Date().setHours(0, 0, 0, 0)
-    const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
+    const DAY_MS = 24 * 60 * 60 * 1000
 
     const completed = tasks.filter((t) => t.done && t.completed_at)
     const completedToday = completed.filter((t) => t.completed_at! >= todayStart).length
-    const completedThisWeek = completed.filter((t) => t.completed_at! >= weekStart).length
+    const completedThisWeek = completed.filter((t) => t.completed_at! >= todayStart - 6 * DAY_MS).length
     const totalPending = tasks.filter((t) => !t.done).length
 
     // Racha (streak) calculation
     const daysWithCompletion = new Set(
       completed.map((t) => new Date(t.completed_at!).setHours(0, 0, 0, 0))
     )
-    const sortedDays = Array.from(daysWithCompletion).sort((a, b) => b - a)
-    
+
     let streak = 0
     let currentCheck = todayStart
-    
-    // Check if they completed today
+
     if (daysWithCompletion.has(todayStart)) {
       streak = 1
-      while (daysWithCompletion.has(currentCheck - 24 * 60 * 60 * 1000)) {
+      while (daysWithCompletion.has(currentCheck - DAY_MS)) {
         streak++
-        currentCheck -= 24 * 60 * 60 * 1000
+        currentCheck -= DAY_MS
       }
-    } else if (daysWithCompletion.has(todayStart - 24 * 60 * 60 * 1000)) {
-      // If they didn't complete today, check if they did yesterday (to keep the streak alive until the day ends)
+    } else if (daysWithCompletion.has(todayStart - DAY_MS)) {
       streak = 1
-      currentCheck = todayStart - 24 * 60 * 60 * 1000
-      while (daysWithCompletion.has(currentCheck - 24 * 60 * 60 * 1000)) {
+      currentCheck = todayStart - DAY_MS
+      while (daysWithCompletion.has(currentCheck - DAY_MS)) {
         streak++
-        currentCheck -= 24 * 60 * 60 * 1000
+        currentCheck -= DAY_MS
       }
     }
 
-    return { completedToday, completedThisWeek, totalPending, streak }
-  }, [tasks])
+    // MEJORA-5: 7-day bar chart data
+    const weekBars = Array.from({ length: 7 }, (_, i) => {
+      const dayStart = todayStart - (6 - i) * DAY_MS
+      const dayEnd = dayStart + DAY_MS
+      const count = completed.filter(
+        (t) => t.completed_at! >= dayStart && t.completed_at! < dayEnd
+      ).length
+      const date = new Date(dayStart)
+      return { count, label: (DAY_LABELS[language] ?? DAY_LABELS.es)[date.getDay()], isToday: i === 6 }
+    })
+
+    return { completedToday, completedThisWeek, totalPending, streak, weekBars }
+  }, [tasks, language])
 
   return (
     <div className="p-6 flex flex-col gap-6 max-w-2xl mx-auto w-full">
@@ -76,6 +92,31 @@ export default function StatsView(): JSX.Element {
           <div className="text-text-secondary text-[10px] uppercase font-bold tracking-widest">{t('total_pending')}</div>
           <div className="text-2xl font-semibold text-text-primary">{stats.totalPending} {t('tasks_unit')}</div>
           <p className="text-text-secondary text-xs mt-1">{t('encouragement_1')}</p>
+        </div>
+      </div>
+
+      {/* MEJORA-5: Weekly activity chart */}
+      <div className="bg-elevated p-5 rounded-card border border-[#1e1e20]">
+        <div className="text-text-secondary text-[10px] uppercase font-bold tracking-widest mb-4">{t('activity_chart')}</div>
+        <div className="flex items-end gap-1.5 h-20">
+          {stats.weekBars.map((bar, i) => {
+            const max = Math.max(...stats.weekBars.map((b) => b.count), 1)
+            const pct = (bar.count / max) * 100
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[9px] text-text-secondary">{bar.count > 0 ? bar.count : ''}</span>
+                <div className="w-full rounded-t-sm transition-all duration-500 relative"
+                  style={{
+                    height: `${Math.max(pct, bar.count > 0 ? 8 : 2)}%`,
+                    backgroundColor: bar.isToday ? 'var(--accent)' : bar.count > 0 ? 'var(--accent-glow)' : '#2a2a2e'
+                  }}
+                />
+                <span className={`text-[9px] ${bar.isToday ? 'text-accent font-semibold' : 'text-text-secondary'}`}>
+                  {bar.label}
+                </span>
+              </div>
+            )
+          })}
         </div>
       </div>
 

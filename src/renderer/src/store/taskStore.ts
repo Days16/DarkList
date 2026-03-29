@@ -37,26 +37,33 @@ export const useTaskStore = create<TaskState>((set) => ({
   updateTaskItem: (id, data) =>
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...data } : t)) })),
   removeTask: (id: string) => set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
-  reorderTasks: (activeId, overId) =>
-    set((s) => {
-      const oldIndex = s.tasks.findIndex((t) => t.id === activeId)
-      const newIndex = s.tasks.findIndex((t) => t.id === overId)
-      if (oldIndex === -1 || newIndex === -1) return s
+  reorderTasks: (activeId, overId) => {
+    const { tasks } = useTaskStore.getState()
+    const oldIndex = tasks.findIndex((t: Task) => t.id === activeId)
+    const newIndex = tasks.findIndex((t: Task) => t.id === overId)
+    if (oldIndex === -1 || newIndex === -1) return
 
-      const newTasks = [...s.tasks]
-      const [removed] = newTasks.splice(oldIndex, 1)
-      newTasks.splice(newIndex, 0, removed)
+    const arr = [...tasks]
+    const [removed] = arr.splice(oldIndex, 1)
+    arr.splice(newIndex, 0, removed)
 
-      // Update sort_order for all moved tasks
-      newTasks.forEach((t, i) => {
-        if (t.sort_order !== i) {
-          t.sort_order = i
-          window.api.updateTask(t.id, { sort_order: i })
-        }
-      })
+    // Compute updates before mutating state
+    const updates: { id: string; sort_order: number }[] = []
+    const reordered = arr.map((t: Task, i: number) => {
+      if (t.sort_order !== i) {
+        updates.push({ id: t.id, sort_order: i })
+        return { ...t, sort_order: i }
+      }
+      return t
+    })
 
-      return { tasks: newTasks }
-    }),
+    set({ tasks: reordered })
+
+    // IPC calls after set() — outside the reducer
+    updates.forEach(({ id, sort_order }) => {
+      window.api.updateTask(id, { sort_order })
+    })
+  },
   setPendingDelete: (task, index = null) => set({ pendingDelete: task, pendingDeleteIndex: index }),
   setDeleteTimer: (t) => set({ deleteTimer: t })
 }))

@@ -113,23 +113,25 @@ export function setupTaskHandlers(): void {
       
       const newId = randomUUID()
       const now = Date.now()
+      const maxSortRec = db.prepare('SELECT MAX(sort_order) as maxSort FROM tasks').get() as { maxSort: number | null }
+      const newSortOrder = (maxSortRec?.maxSort ?? -1) + 1
       db.prepare(
         `INSERT INTO tasks (id, list_id, parent_id, title, notes, done, priority, due_date, reminder_at, recurrence, sort_order, completed_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        newId, 
-        task.list_id, 
-        task.parent_id, 
-        task.title, 
-        task.notes, 
-        0, 
-        task.priority, 
-        nextDate.getTime(), 
-        task.reminder_at ? task.reminder_at + (nextDate.getTime() - (task.due_date || Date.now())) : null, 
+        newId,
+        task.list_id,
+        task.parent_id,
+        task.title,
+        task.notes,
+        0,
+        task.priority,
+        nextDate.getTime(),
+        task.reminder_at ? task.reminder_at + (nextDate.getTime() - (task.due_date || Date.now())) : null,
         task.recurrence,
-        task.sort_order,
+        newSortOrder,
         null,
-        now, 
+        now,
         now
       )
     }
@@ -156,5 +158,35 @@ export function setupTaskHandlers(): void {
     })
 
     return { success: true }
+  })
+
+  ipcMain.handle('tasks:restore', (_e, task: Task) => {
+    const db = getDb()
+    db.prepare(
+      `INSERT OR REPLACE INTO tasks (id, list_id, parent_id, title, notes, done, priority, due_date, reminder_at, recurrence, sort_order, notified, completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      task.id,
+      task.list_id,
+      task.parent_id,
+      task.title,
+      task.notes ?? null,
+      task.done ? 1 : 0,
+      task.priority,
+      task.due_date ?? null,
+      task.reminder_at ?? null,
+      task.recurrence ?? null,
+      task.sort_order,
+      task.notified,
+      task.completed_at ?? null,
+      task.created_at,
+      task.updated_at
+    )
+    const restored = rowToTask(db.prepare('SELECT * FROM tasks WHERE id = ?').get(task.id) as Record<string, unknown>)
+    if (restored.reminder_at) scheduleReminder(restored)
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('task:created', restored)
+    })
+    return restored
   })
 }

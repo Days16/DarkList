@@ -11,6 +11,8 @@ const api = {
     ipcRenderer.invoke('tasks:update', id, data),
   deleteTask: (id: string): Promise<{ success: boolean }> =>
     ipcRenderer.invoke('tasks:delete', id),
+  restoreTask: (task: Task): Promise<Task> =>
+    ipcRenderer.invoke('tasks:restore', task),
 
   // Lists
   getLists: (): Promise<List[]> =>
@@ -40,8 +42,10 @@ const api = {
 
   getVersion: (): Promise<string> => 
     ipcRenderer.invoke('app:getVersion'),
-  toggleWidget: (): void => 
+  toggleWidget: (): void =>
     ipcRenderer.send('app:toggleWidget'),
+  rebuildTray: (): void =>
+    ipcRenderer.send('tray:rebuild'),
   exportToCalendar: (task: any): Promise<void> => 
     ipcRenderer.invoke('app:exportToCalendar', task),
 

@@ -1,10 +1,24 @@
+import { useEffect } from 'react'
+import { useUiStore } from '../store/uiStore'
+
 interface Props {
   message: string
   onConfirm: () => void
   onCancel: () => void
+  confirmLabel?: string
+  cancelLabel?: string
+  danger?: boolean
 }
 
-export default function ConfirmModal({ message, onConfirm, onCancel }: Props): JSX.Element {
+export default function ConfirmModal({ message, onConfirm, onCancel, confirmLabel, cancelLabel, danger = true }: Props): JSX.Element {
+  const { t } = useUiStore()
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => { if (e.key === 'Escape') onCancel() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onCancel])
+
   return (
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
@@ -17,13 +31,13 @@ export default function ConfirmModal({ message, onConfirm, onCancel }: Props): J
             onClick={onCancel}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            Cancelar
+            {cancelLabel ?? t('cancel')}
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm bg-red-500 text-white rounded-input hover:opacity-90 transition-opacity"
+            className={`px-4 py-2 text-sm text-white rounded-input hover:opacity-90 transition-opacity ${danger ? 'bg-red-500' : 'bg-accent'}`}
           >
-            Eliminar
+            {confirmLabel ?? t('delete_action')}
           </button>
         </div>
       </div>

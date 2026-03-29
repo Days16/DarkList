@@ -27,7 +27,7 @@ export interface AppSettings {
   autoLockMinutes: 0 | 5 | 15 | 30
   accentColor: string
   theme: 'dark' | 'light' | 'system'
-  language: 'es' | 'en'
+  language: 'es' | 'en' | 'fr' | 'de' | 'pt' | 'it'
   backupFrequencyDays: number // 0 = off, 7, 30, etc.
   syncUrl?: string
   syncUser?: string

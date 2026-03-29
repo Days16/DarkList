@@ -3,20 +3,47 @@ import { useTaskStore } from '../store/taskStore'
 import { useUiStore } from '../store/uiStore'
 import { Task } from '@shared/types'
 
+const PRIORITY_COLORS: Record<number, string> = {
+  1: '#6b7280',
+  2: '#f59e0b',
+  3: '#ef4444'
+}
+
 export default function WidgetView(): JSX.Element {
   const { tasks, setTasks, addTask, updateTaskItem } = useTaskStore()
-  const { t, showContextMenu } = useUiStore()
+  const { t, showContextMenu, language } = useUiStore()
   const [newTitle, setNewTitle] = useState('')
 
+  // Load tasks on mount
   useEffect(() => {
     window.api.getTasks().then(setTasks)
   }, [setTasks])
 
-  const todayEnd = new Date().setHours(23, 59, 59, 999)
+  // Listen for task updates from main window (real-time sync)
+  useEffect(() => {
+    const unsubCreated = window.api.onTaskCreated((task: Task) => {
+      addTask(task)
+    })
+    const unsubUpdated = window.api.onTaskUpdated((task: Task) => {
+      updateTaskItem(task.id, task)
+    })
+    const unsubDeleted = window.api.onTaskDeleted((id: string) => {
+      useTaskStore.getState().removeTask(id)
+    })
+    return () => {
+      unsubCreated()
+      unsubUpdated()
+      unsubDeleted()
+    }
+  }, [])
 
-  const todayTasks = tasks.filter(
-    (t) => !t.done && t.due_date && t.due_date <= todayEnd
-  ).sort((a, b) => (a.due_date || 0) - (b.due_date || 0))
+  // Show all pending tasks (sorted like the main app)
+  const pendingTasks = tasks
+    .filter((t) => !t.done && !t.parent_id)
+    .sort((a, b) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+      return b.created_at - a.created_at
+    })
 
   const handleAddNew = async (): Promise<void> => {
     const trimmed = newTitle.trim()
@@ -25,7 +52,7 @@ export default function WidgetView(): JSX.Element {
       title: trimmed,
       done: false,
       priority: 1,
-      due_date: todayEnd,
+      due_date: null,
       list_id: null,
       parent_id: null,
       notes: '',
@@ -56,86 +83,124 @@ export default function WidgetView(): JSX.Element {
   return (
     <div
       onContextMenu={handleContextMenu}
-      className="h-screen w-screen bg-base/80 backdrop-blur-xl border border-border-color rounded-2xl overflow-hidden flex flex-col shadow-2xl relative"
-      style={{ boxShadow: '0 0 40px -10px var(--accent-glow)' } as any}
+      className="h-screen w-screen bg-base rounded-2xl overflow-hidden flex flex-col shadow-2xl"
     >
-      {/* Premium Border Inner Highlight */}
-      <div className="absolute inset-0 border border-white/5 rounded-2xl pointer-events-none" />
-      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
-
       {/* Header / Drag Area */}
       <div
         style={{ WebkitAppRegion: 'drag' } as any}
-        className="h-12 flex items-center justify-between px-4 bg-text-primary/5 border-b border-border-color flex-shrink-0"
+        className="h-10 flex items-center justify-between px-3 border-b border-border-color flex-shrink-0"
       >
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 bg-accent rounded-lg flex items-center justify-center text-[10px] font-bold text-white">
             D
           </div>
-          <span className="text-xs font-bold text-text-primary tracking-wider">{t('today').toUpperCase()}</span>
+          <span className="text-xs font-medium text-text-primary">{t('home')}</span>
+          <span className="text-[10px] text-text-secondary">{pendingTasks.length}</span>
         </div>
 
-        <div style={{ WebkitAppRegion: 'no-drag' } as any} className="flex items-center gap-1">
+        <div style={{ WebkitAppRegion: 'no-drag' } as any}>
           <button
             onClick={closeWidget}
-            className="w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center text-text-secondary hover:text-white transition-colors"
+            className="w-6 h-6 rounded-card hover:bg-elevated/50 flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors duration-fast"
           >
             ✕
           </button>
         </div>
       </div>
 
-      {/* Task List */}
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        {todayTasks.length === 0 ? (
+      {/* Task List — same style as main app TaskItem */}
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        {pendingTasks.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
             <span className="text-2xl mb-2">✨</span>
-            <p className="text-[10px] font-medium text-text-primary uppercase tracking-widest">{t('all_caught_up')}</p>
+            <p className="text-[10px] font-medium text-text-primary uppercase tracking-widest">
+              {t('all_caught_up')}
+            </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {todayTasks.map((task) => (
+          pendingTasks.map((task) => {
+            const isOverdue = task.due_date && !task.done && task.due_date < Date.now()
+            const dueDateStr = task.due_date
+              ? new Date(task.due_date).toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { day: 'numeric', month: 'short' })
+              : null
+
+            return (
               <div
                 key={task.id}
-                className="group flex items-start gap-3 p-2 rounded-card bg-white/[0.02] hover:bg-white/5 transition-colors"
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  showContextMenu(e.clientX, e.clientY, 'task', task)
+                }}
+                className="group flex items-start gap-3 px-3 py-2.5 rounded-card transition-colors duration-fast hover:bg-elevated/50 relative"
               >
+                {/* Priority bar */}
+                <div
+                  className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full opacity-0 group-hover:opacity-70 transition-opacity duration-fast"
+                  style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
+                />
+
+                {/* Checkbox — identical to TaskItem */}
                 <button
                   onClick={() => toggleTask(task)}
-                  className={`mt-0.5 w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center
-                    transition-all duration-fast
-                    ${task.done ? 'bg-accent border-accent' : 'border-border-color hover:border-accent'}`}
+                  className={`mt-0.5 w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center
+                    transition-all duration-200 active:scale-90
+                    ${task.done
+                      ? 'bg-accent border-accent'
+                      : 'border-text-secondary/50 hover:border-accent hover:bg-accent/10'
+                    }`}
                 >
-                  {task.done && <span className="text-white text-[8px]">✓</span>}
+                  {task.done && (
+                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                      <path d="M1 4.5L3.5 7L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
                 </button>
 
-                <span className={`text-xs leading-tight break-words
-                  ${task.done ? 'line-through text-text-secondary' : 'text-text-primary'}`}
-                >
-                  {task.title}
-                </span>
+                {/* Content — identical to TaskItem */}
+                <div className="flex-1 min-w-0">
+                  <span
+                    className={`text-sm block truncate ${
+                      task.done ? 'line-through text-text-secondary' : 'text-text-primary'
+                    }`}
+                  >
+                    {task.title}
+                  </span>
+
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
+                    />
+                    {dueDateStr && (
+                      <span className={`text-[10px] ${isOverdue ? 'text-red-400' : 'text-text-secondary'}`}>
+                        {isOverdue ? '⚠ ' : ''}{dueDateStr}
+                      </span>
+                    )}
+                    {task.recurrence && (
+                      <span className="text-[10px] text-accent/70">↻ {task.recurrence}</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
+            )
+          })
         )}
       </div>
 
-      {/* New Task Input Area */}
-      <div className="px-4 py-2 bg-text-primary/5 border-t border-border-color">
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAddNew()}
-          placeholder={`${t('add_task')}...`}
-          className="w-full bg-transparent text-xs text-text-primary placeholder:text-text-secondary/40 outline-none py-1"
-        />
-      </div>
-
-      {/* Footer */}
-      <div className="p-2 bg-text-primary/[0.01] flex justify-center">
-        <span className="text-[8px] text-text-secondary uppercase tracking-[0.2em] opacity-40">
-          {t('widget_footer')}
-        </span>
+      {/* New Task Input — same style as TaskInput in main app */}
+      <div className="px-3 py-2.5 border-t border-border-color">
+        <div className="flex items-center gap-2">
+          <span className="text-accent text-sm">+</span>
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddNew()}
+            placeholder={`${t('add_task')}...`}
+            className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-secondary/40 outline-none"
+          />
+        </div>
       </div>
     </div>
   )
