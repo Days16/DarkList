@@ -38,15 +38,59 @@ const api = {
   setSettings: (data: Partial<AppSettings>): Promise<AppSettings> =>
     ipcRenderer.invoke('settings:set', data),
 
-  // App details
   getVersion: (): Promise<string> => 
     ipcRenderer.invoke('app:getVersion'),
+  toggleWidget: (): void => 
+    ipcRenderer.send('app:toggleWidget'),
+  exportToCalendar: (task: any): Promise<void> => 
+    ipcRenderer.invoke('app:exportToCalendar', task),
+
+  // Data
+  exportData: (): Promise<{ success: boolean; filePath?: string }> =>
+    ipcRenderer.invoke('data:export'),
+  importData: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:import'),
+  syncPush: (url: string, user: string, pass: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:syncPush', { url, user, pass }),
+  syncPull: (url: string, user: string, pass: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('data:syncPull', { url, user, pass }),
+
+  // Menu
+  showTaskMenu: (taskId: string, isDone: boolean): Promise<void> =>
+    ipcRenderer.invoke('menu:show-task', { taskId, isDone }),
+  showListMenu: (listId: string, listName: string): Promise<void> =>
+    ipcRenderer.invoke('menu:show-list', { listId, listName }),
 
   // App events
   onLock: (cb: () => void): (() => void) => {
     const handler = (): void => cb()
     ipcRenderer.on('app:lock', handler)
     return () => ipcRenderer.removeListener('app:lock', handler)
+  },
+  onSettingsUpdated: (cb: (settings: AppSettings) => void): (() => void) => {
+    const handler = (_e: any, settings: AppSettings): void => cb(settings)
+    ipcRenderer.on('settings:updated', handler)
+    return () => ipcRenderer.removeListener('settings:updated', handler)
+  },
+  onTaskCreated: (cb: (task: Task) => void): (() => void) => {
+    const handler = (_e: any, t: Task): void => cb(t)
+    ipcRenderer.on('task:created', handler)
+    return () => ipcRenderer.removeListener('task:created', handler)
+  },
+  onTaskUpdated: (cb: (task: Task) => void): (() => void) => {
+    const handler = (_e: any, t: Task): void => cb(t)
+    ipcRenderer.on('task:updated', handler)
+    return () => ipcRenderer.removeListener('task:updated', handler)
+  },
+  onTaskDeleted: (cb: (id: string) => void): (() => void) => {
+    const handler = (_e: any, id: string): void => cb(id)
+    ipcRenderer.on('task:deleted', handler)
+    return () => ipcRenderer.removeListener('task:deleted', handler)
+  },
+  onListDelete: (cb: (id: string) => void): (() => void) => {
+    const handler = (_e: any, id: string): void => cb(id)
+    ipcRenderer.on('list:delete', handler)
+    return () => ipcRenderer.removeListener('list:delete', handler)
   }
 }
 

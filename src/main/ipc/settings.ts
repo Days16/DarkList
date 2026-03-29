@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import Store from 'electron-store'
 import { AppSettings } from '../../shared/types'
 
@@ -6,7 +6,13 @@ interface Schema {
   settings: AppSettings
 }
 
-const DEFAULT: AppSettings = { autoLockMinutes: 0, accentColor: '#7c6af7' }
+const DEFAULT: AppSettings = { 
+  autoLockMinutes: 0, 
+  accentColor: '#7c6af7',
+  theme: 'dark',
+  language: 'es',
+  backupFrequencyDays: 7
+}
 
 const store = new Store<Schema>({ name: 'darklist-config' })
 
@@ -17,6 +23,12 @@ export function setupSettingsHandlers(): void {
     const current = store.get('settings', DEFAULT)
     const updated: AppSettings = { ...current, ...data }
     store.set('settings', updated)
+    
+    // Broadcast to all windows
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('settings:updated', updated)
+    })
+    
     return updated
   })
 }

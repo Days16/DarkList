@@ -9,11 +9,11 @@ export default {
     extend: {
       colors: {
         accent: 'var(--accent)',
-        base: '#0e0e0f',
-        surface: '#161618',
-        elevated: '#1e1e20',
-        'text-primary': '#f2f2f0',
-        'text-secondary': '#8a8a8a'
+        base: 'var(--bg-base)',
+        surface: 'var(--bg-surface)',
+        elevated: 'var(--bg-elevated)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)'
       },
       fontFamily: {
         sans: ['Inter', 'sans-serif']

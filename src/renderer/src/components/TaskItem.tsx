@@ -2,6 +2,9 @@ import { useState, useRef, useEffect } from 'react'
 import { Task } from '@shared/types'
 import { useTaskStore } from '../store/taskStore'
 import { useListStore } from '../store/listStore'
+import { useUiStore } from '../store/uiStore'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 const PRIORITY_COLORS: Record<number, string> = {
   1: '#6b7280',
@@ -21,13 +24,31 @@ interface Props {
 }
 
 export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element {
-  const { updateTaskItem } = useTaskStore()
+  const { updateTaskItem, addTask } = useTaskStore()
+  const { showContextMenu, t } = useUiStore()
   const lists = useListStore((s) => s.lists)
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(task.title)
+  const [notes, setNotes] = useState(task.notes || '')
+  const [showNotes, setShowNotes] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: task.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : (task.done ? 0.5 : 1)
+  }
 
   useEffect(() => {
     if (editing) inputRef.current?.focus()
@@ -45,21 +66,57 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
 
   const toggle = async (): Promise<void> => {
     const updated = await window.api.updateTask(task.id, { done: !task.done })
-    updateTaskItem(task.id, { done: updated.done })
+    updateTaskItem(task.id, updated)
+  }
+
+  const handleContextMenu = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    showContextMenu(e.clientX, e.clientY, 'task', task)
   }
 
   const saveTitle = async (): Promise<void> => {
     setEditing(false)
     const trimmed = title.trim()
     if (!trimmed || trimmed === task.title) { setTitle(task.title); return }
-    await window.api.updateTask(task.id, { title: trimmed })
-    updateTaskItem(task.id, { title: trimmed })
+    const updated = await window.api.updateTask(task.id, { title: trimmed })
+    updateTaskItem(task.id, updated)
   }
 
   const setPriority = async (p: 1 | 2 | 3): Promise<void> => {
-    await window.api.updateTask(task.id, { priority: p })
-    updateTaskItem(task.id, { priority: p })
+    const updated = await window.api.updateTask(task.id, { priority: p })
+    updateTaskItem(task.id, updated)
     setShowMenu(false)
+  }
+
+  const addSubtask = async (): Promise<void> => {
+    const subtask = await window.api.createTask({
+      title: t('new_subtask'),
+      list_id: task.list_id,
+      parent_id: task.id,
+      priority: 2,
+      done: false,
+      due_date: task.due_date,
+      reminder_at: null,
+      notes: '',
+      recurrence: null,
+      sort_order: 0,
+      notified: 0,
+      completed_at: null
+    })
+    addTask(subtask)
+    setShowMenu(false)
+  }
+
+  const toggleRecurrence = async (r: 'daily' | 'weekly' | 'monthly' | null): Promise<void> => {
+    await window.api.updateTask(task.id, { recurrence: r })
+    updateTaskItem(task.id, { recurrence: r })
+    setShowMenu(false)
+  }
+
+  const saveNotes = async (): Promise<void> => {
+    if (notes === task.notes) return
+    const updated = await window.api.updateTask(task.id, { notes })
+    updateTaskItem(task.id, updated)
   }
 
   const setDueDate = async (dateStr: string): Promise<void> => {
@@ -92,187 +149,289 @@ export default function TaskItem({ task, onDeleteRequest }: Props): JSX.Element 
 
   return (
     <div
-      className={`group flex items-start gap-3 px-4 py-3 hover:bg-elevated/40 rounded-card
-        transition-colors duration-fast ${task.done ? 'opacity-50' : ''}`}
+      ref={setNodeRef}
+      style={style}
+      onContextMenu={handleContextMenu}
+      className={`group flex flex-col gap-0.5 px-4 py-3 hover:bg-text-primary/[0.03] transition-all duration-200 ease-out relative`}
     >
-      {/* Checkbox */}
-      <button
-        onClick={toggle}
-        className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center
-          transition-all duration-fast
-          ${task.done ? 'bg-accent border-accent' : 'border-[#3a3a3c] hover:border-accent'}`}
-      >
-        {task.done && <span className="text-white text-[10px] leading-none">✓</span>}
-      </button>
+      {/* Priority Accent Bar */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[2px] opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
+      />
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={saveTitle}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') saveTitle()
-              if (e.key === 'Escape') { setEditing(false); setTitle(task.title) }
-            }}
-            className="w-full bg-transparent text-text-primary text-sm outline-none"
-          />
-        ) : (
-          <span
-            onClick={() => !task.done && setEditing(true)}
-            className={`text-sm block truncate
-              ${task.done ? 'line-through text-text-secondary cursor-default' : 'text-text-primary cursor-text hover:text-accent/90'}`}
-          >
-            {task.title}
-          </span>
-        )}
-
-        {/* Meta row */}
-        <div className="flex items-center gap-2 mt-1 flex-wrap">
-          {/* Priority dot */}
-          <span
-            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
-            title={PRIORITY_LABELS[task.priority]}
-          />
-          {/* List badge */}
-          {list && (
-            <span
-              className="text-[10px] px-1.5 py-0.5 rounded-full"
-              style={{ backgroundColor: list.color + '33', color: list.color }}
-            >
-              {list.name}
-            </span>
-          )}
-          {/* Due date */}
-          {dueDateStr && (
-            <span className={`text-[10px] ${isOverdue ? 'text-red-400' : 'text-text-secondary'}`}>
-              {isOverdue ? '⚠ ' : ''}{dueDateStr}
-            </span>
-          )}
+      <div className="flex items-start gap-3">
+        {/* Drag handle */}
+        <div
+          {...attributes}
+          {...listeners}
+          className="mt-1 text-text-secondary/20 hover:text-text-secondary cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <svg width="12" height="18" viewBox="0 0 12 18">
+            <circle cx="2" cy="3" r="1.5" fill="currentColor" />
+            <circle cx="2" cy="9" r="1.5" fill="currentColor" />
+            <circle cx="2" cy="15" r="1.5" fill="currentColor" />
+            <circle cx="10" cy="3" r="1.5" fill="currentColor" />
+            <circle cx="10" cy="9" r="1.5" fill="currentColor" />
+            <circle cx="10" cy="15" r="1.5" fill="currentColor" />
+          </svg>
         </div>
-      </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0">
-        {/* Options menu */}
-        <div className="relative" ref={menuRef}>
-          <button
-            onClick={() => setShowMenu((v) => !v)}
-            className="text-text-secondary hover:text-text-primary text-xs px-1"
-          >
-            •••
-          </button>
-          {showMenu && (
-            <div className="absolute right-0 top-6 bg-elevated border border-[#2a2a2c] rounded-card
-              shadow-xl z-20 w-52 py-1 text-sm">
-              {/* Priority */}
-              <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
-                Prioridad
-              </div>
-              {([1, 2, 3] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPriority(p)}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface
-                    transition-colors text-left ${task.priority === p ? 'text-text-primary' : 'text-text-secondary'}`}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: PRIORITY_COLORS[p] }}
-                  />
-                  {PRIORITY_LABELS[p]}
-                </button>
-              ))}
+        {/* Checkbox */}
+        <button
+          onClick={toggle}
+          className={`mt-0.5 w-4.5 h-4.5 rounded-lg border flex-shrink-0 flex items-center justify-center
+            transition-all duration-300 transform active:scale-90
+            ${task.done ? 'bg-accent border-accent shadow-lg shadow-accent/20' : 'border-text-secondary/20 hover:border-accent hover:bg-accent/5'}`}
+        >
+          {task.done && (
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="animate-in fade-in zoom-in duration-300">
+              <path d="M1 4.5L3.5 7L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
 
-              {/* List */}
-              {lists.length > 0 && (
-                <>
-                  <div className="border-t border-[#2a2a2c] mx-3 my-1" />
-                  <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
-                    Lista
-                  </div>
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveTitle()
+                if (e.key === 'Escape') { setEditing(false); setTitle(task.title) }
+              }}
+              className="w-full bg-transparent text-text-primary text-sm outline-none"
+            />
+          ) : (
+            <span
+              onClick={() => !task.done && setEditing(true)}
+              className={`text-sm block truncate
+              ${task.done ? 'line-through text-text-secondary cursor-default' : 'text-text-primary cursor-text hover:text-accent/90'}`}
+            >
+              {task.title}
+            </span>
+          )}
+
+          {/* Meta row */}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {/* Priority dot */}
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
+              title={PRIORITY_LABELS[task.priority]}
+            />
+            {/* List badge */}
+            {list && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full"
+                style={{ backgroundColor: list.color + '33', color: list.color }}
+              >
+                {list.name}
+              </span>
+            )}
+            {/* Due date */}
+            {dueDateStr && (
+              <span className={`text-[10px] ${isOverdue ? 'text-red-400' : 'text-text-secondary'}`}>
+                {isOverdue ? '⚠ ' : ''}{dueDateStr}
+              </span>
+            )}
+            {/* Recurrence badge */}
+            {task.recurrence && (
+              <span className="text-[10px] text-accent/70 flex items-center gap-1">
+                <span>↻</span>
+                <span className="capitalize">{task.recurrence}</span>
+              </span>
+            )}
+            {/* Notes indicator */}
+            {task.notes && (
+              <button onClick={() => setShowNotes(!showNotes)} className="text-[10px] text-text-secondary hover:text-text-primary">
+                📝 Notas
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-fast flex-shrink-0">
+          {/* Options menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setShowMenu((v) => !v)}
+              className="w-7 h-7 rounded-lg hover:bg-text-primary/10 flex items-center justify-center text-text-secondary hover:text-text-primary transition-all duration-300"
+              title="Más opciones"
+            >
+              <svg width="14" height="4" viewBox="0 0 14 4" fill="currentColor">
+                <circle cx="2" cy="2" r="1.5" />
+                <circle cx="7" cy="2" r="1.5" />
+                <circle cx="12" cy="2" r="1.5" />
+              </svg>
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-8 bg-elevated border border-border-color rounded-card
+              shadow-2xl z-50 w-52 py-1 text-sm animate-in fade-in slide-in-from-top-1 backdrop-blur-md">
+                {/* Priority */}
+                <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
+                  {t('priority')}
+                </div>
+                {([1, 2, 3] as const).map((p) => (
                   <button
-                    onClick={() => setList('')}
-                    className={`w-full text-left px-3 py-1.5 hover:bg-surface transition-colors
-                      ${!task.list_id ? 'text-text-primary' : 'text-text-secondary'}`}
+                    key={p}
+                    onClick={() => setPriority(p)}
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface
+                    transition-colors text-left ${task.priority === p ? 'text-text-primary' : 'text-text-secondary'}`}
                   >
-                    Sin lista
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: PRIORITY_COLORS[p] }}
+                    />
+                    {PRIORITY_LABELS[p]}
                   </button>
-                  {lists.map((l) => (
+                ))}
+
+                {/* List */}
+                {lists.length > 0 && (
+                  <>
+                    <div className="border-t border-border-color mx-3 my-1" />
+                    <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
+                      {t('home')}
+                    </div>
                     <button
-                      key={l.id}
-                      onClick={() => setList(l.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface
-                        transition-colors ${task.list_id === l.id ? 'text-text-primary' : 'text-text-secondary'}`}
+                      onClick={() => setList('')}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-surface transition-colors
+                      ${!task.list_id ? 'text-text-primary' : 'text-text-secondary'}`}
                     >
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} />
-                      {l.name}
+                      {t('no_list_selected')}
                     </button>
-                  ))}
-                </>
-              )}
+                    {lists.map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => setList(l.id)}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 hover:bg-surface
+                        transition-colors ${task.list_id === l.id ? 'text-text-primary' : 'text-text-secondary'}`}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} />
+                        {l.name}
+                      </button>
+                    ))}
+                  </>
+                )}
 
-              {/* Due date */}
-              <div className="border-t border-[#2a2a2c] mx-3 my-1" />
-              <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
-                Fecha límite
-              </div>
-              <div className="px-3 pb-2">
-                <input
-                  type="date"
-                  defaultValue={task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full bg-surface text-text-primary text-xs rounded-input px-2 py-1
-                    outline-none border border-[#2a2a2c] focus:border-accent"
-                />
-              </div>
+                {/* Due date */}
+                <div className="border-t border-border-color mx-3 my-1" />
+                <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
+                  {t('due_date')}
+                </div>
+                <div className="px-3 pb-2">
+                  <input
+                    type="date"
+                    defaultValue={task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : ''}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="w-full bg-surface text-text-primary text-xs rounded-input px-2 py-1
+                    outline-none border border-border-color focus:border-accent"
+                  />
+                </div>
 
-              {/* Reminder */}
-              <div className="px-3 pb-1 text-[10px] text-text-secondary uppercase tracking-wider">
-                Recordatorio
-              </div>
-              <div className="px-3 pb-2">
-                <input
-                  type="datetime-local"
-                  defaultValue={
-                    task.reminder_at
-                      ? new Date(task.reminder_at - new Date().getTimezoneOffset() * 60000)
+                {/* Reminder */}
+                <div className="px-3 pb-1 text-[10px] text-text-secondary uppercase tracking-wider">
+                  {t('reminder')}
+                </div>
+                <div className="px-3 pb-2">
+                  <input
+                    type="datetime-local"
+                    defaultValue={
+                      task.reminder_at
+                        ? new Date(task.reminder_at)
                           .toISOString()
                           .slice(0, 16)
-                      : ''
-                  }
-                  onChange={(e) => setReminder(e.target.value)}
-                  className="w-full bg-surface text-text-primary text-xs rounded-input px-2 py-1
-                    outline-none border border-[#2a2a2c] focus:border-accent"
-                />
+                        : ''
+                    }
+                    onChange={(e) => setReminder(e.target.value)}
+                    className="w-full bg-surface text-text-primary text-xs rounded-input px-2 py-1
+                    outline-none border border-border-color focus:border-accent"
+                  />
+                </div>
+
+                {/* Recurrence */}
+                <div className="border-t border-border-color mx-3 my-1" />
+                <div className="px-3 py-1.5 text-[10px] text-text-secondary uppercase tracking-wider">
+                  {t('recurrence')}
+                </div>
+                <div className="flex flex-wrap gap-1 px-3 pb-2">
+                  {(['daily', 'weekly', 'monthly', null] as const).map((r) => (
+                    <button
+                      key={r || 'none'}
+                      onClick={() => toggleRecurrence(r)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors
+                      ${task.recurrence === r ? 'bg-accent/20 border-accent text-accent' : 'border-border-color text-text-secondary hover:border-accent/50'}`}
+                    >
+                      {r ? r.charAt(0).toUpperCase() + r.slice(1) : 'Ninguna'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Subtasks */}
+                {!task.parent_id && (
+                  <>
+                    <div className="border-t border-border-color mx-3 my-1" />
+                    <button
+                      onClick={addSubtask}
+                      className="w-full text-left px-3 py-2 hover:bg-surface text-text-primary transition-colors flex items-center gap-2"
+                    >
+                      <span className="text-accent">+</span>
+                      {t('add_subtask')}
+                    </button>
+                  </>
+                )}
+
+                {/* Notes Toggle */}
+                <div className="border-t border-border-color mx-3 my-1" />
+                <button
+                  onClick={() => { setShowNotes(!showNotes); setShowMenu(false) }}
+                  className="w-full text-left px-3 py-2 hover:bg-surface text-text-primary transition-colors flex items-center gap-2"
+                >
+                  <span>📝</span>
+                  {showNotes ? t('hide_notes') : t('view_notes')}
+                </button>
               </div>
-            </div>
+            )}
+          </div>
+
+          {/* Edit */}
+          {!task.done && (
+            <button
+              onClick={() => setEditing(true)}
+              title="Editar"
+              className="text-text-secondary hover:text-text-primary text-xs px-1 transition-colors"
+            >
+              ✎
+            </button>
           )}
-        </div>
 
-        {/* Edit */}
-        {!task.done && (
+          {/* Delete */}
           <button
-            onClick={() => setEditing(true)}
-            title="Editar"
-            className="text-text-secondary hover:text-text-primary text-xs px-1 transition-colors"
+            onClick={() => onDeleteRequest(task)}
+            title="Eliminar"
+            className="text-text-secondary hover:text-red-400 text-xs px-1 transition-colors"
           >
-            ✎
+            ✕
           </button>
-        )}
-
-        {/* Delete */}
-        <button
-          onClick={() => onDeleteRequest(task)}
-          title="Eliminar"
-          className="text-text-secondary hover:text-red-400 text-xs px-1 transition-colors"
-        >
-          ✕
-        </button>
+        </div>
       </div>
+
+      {showNotes && (
+        <div className="mt-2 ml-10">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={saveNotes}
+            placeholder={t('add_notes_placeholder')}
+            className="w-full bg-surface/50 text-text-secondary text-xs rounded-input p-2 outline-none border border-transparent focus:border-white/5 min-h-[60px] resize-none"
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -22,8 +22,24 @@ declare global {
       setSettings(data: Partial<AppSettings>): Promise<AppSettings>
 
       getVersion(): Promise<string>
+      toggleWidget(): void
+      exportToCalendar(task: any): Promise<void>
+      exportData(): Promise<{ success: boolean; filePath?: string }>
+      importData(): Promise<{ success: boolean; error?: string }>
+      syncPush(url: string, user: string, pass: string): Promise<{ success: boolean; error?: string }>
+      syncPull(url: string, user: string, pass: string): Promise<{ success: boolean; error?: string }>
 
-      onLock(cb: () => void): () => void
+      // Menu
+      showTaskMenu(taskId: string, isDone: boolean): Promise<void>
+      showListMenu(listId: string, listName: string): Promise<void>
+
+      // App events
+      onLock(cb: () => void): (() => void)
+      onSettingsUpdated(cb: (settings: AppSettings) => void): (() => void)
+      onTaskCreated(cb: (task: Task) => void): (() => void)
+      onTaskUpdated(cb: (task: Task) => void): (() => void)
+      onTaskDeleted(cb: (id: string) => void): (() => void)
+      onListDelete(cb: (id: string) => void): (() => void)
     }
   }
 }

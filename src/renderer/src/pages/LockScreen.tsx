@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../store/authStore'
+import { useUiStore } from '../store/uiStore'
 import PinPad from '../components/PinPad'
 
 export default function LockScreen(): JSX.Element {
   const { incrementFailed, resetFailed, setUnlocked, failedAttempts, cooldownUntil } =
     useAuthStore()
+  const { t } = useUiStore()
   const [shake, setShake] = useState(false)
   const [cooldownLeft, setCooldownLeft] = useState(0)
 
@@ -39,15 +41,15 @@ export default function LockScreen(): JSX.Element {
     <div className="flex flex-col items-center justify-center h-full bg-base gap-8">
       <div className="text-center">
         <h1 className="text-2xl font-semibold text-text-primary mb-1">DarkList</h1>
-        <p className="text-text-secondary text-sm">Introduce tu PIN</p>
+        <p className="text-text-secondary text-sm">{t('enter_pin')}</p>
         {failedAttempts > 0 && !locked && (
           <p className="text-red-400 text-xs mt-2">
-            PIN incorrecto — {5 - failedAttempts} intentos restantes
+            {t('pin_incorrect')} — {5 - failedAttempts} {t('attempts_left')}
           </p>
         )}
         {locked && (
           <p className="text-amber-400 text-xs mt-2">
-            Bloqueado — espera {cooldownLeft}s
+            {t('locked')} — {t('wait')} {cooldownLeft}s
           </p>
         )}
       </div>

@@ -18,12 +18,18 @@ export function setupAuthHandlers(): void {
   })
 
   ipcMain.handle('auth:set', async (_e, pin: string) => {
+    if (pin.length < 4 || pin.length > 6) {
+      return { success: false, error: 'El PIN debe tener entre 4 y 6 dígitos' }
+    }
     const hash = await bcrypt.hash(pin, 10)
     store.set('pinHash', hash)
     return { success: true }
   })
 
   ipcMain.handle('auth:change', async (_e, oldPin: string, newPin: string) => {
+    if (newPin.length < 4 || newPin.length > 6) {
+      return { success: false, error: 'El PIN nuevo debe tener entre 4 y 6 dígitos' }
+    }
     const hash = store.get('pinHash')
     if (!hash) return { success: false, error: 'No PIN set' }
     const valid = await bcrypt.compare(oldPin, hash)

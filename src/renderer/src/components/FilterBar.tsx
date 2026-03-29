@@ -1,29 +1,36 @@
+import { useEffect, useRef } from 'react'
 import { useUiStore } from '../store/uiStore'
 import { FilterType, SortType } from '@shared/types'
 
-const FILTERS: { id: FilterType; label: string }[] = [
-  { id: 'all', label: 'Todas' },
-  { id: 'today', label: 'Hoy' },
-  { id: 'week', label: 'Esta semana' },
-  { id: 'priority', label: 'Alta prioridad' }
-]
-
-const SORTS: { id: SortType; label: string }[] = [
-  { id: 'created', label: 'Fecha creación' },
-  { id: 'due_date', label: 'Fecha límite' },
-  { id: 'priority', label: 'Prioridad' }
-]
-
 export default function FilterBar(): JSX.Element {
-  const { filter, sort, searchQuery, setFilter, setSort, setSearchQuery } = useUiStore()
+  const { filter, setFilter, sort, setSort, searchQuery, setSearchQuery, focusSearchTrigger, t } = useUiStore()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const FILTERS: { id: FilterType; label: string }[] = [
+    { id: 'all', label: t('all') },
+    { id: 'today', label: t('today') },
+    { id: 'week', label: t('week') },
+    { id: 'priority', label: t('priority_high') }
+  ]
+
+  const SORTS: { id: SortType; label: string }[] = [
+    { id: 'created', label: t('history') },
+    { id: 'due_date', label: t('due_date') },
+    { id: 'priority', label: t('priority') }
+  ]
+
+  useEffect(() => {
+    if (focusSearchTrigger > 0) inputRef.current?.focus()
+  }, [focusSearchTrigger])
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-2 border-b border-[#1e1e20]">
+    <div className="px-4 py-3 flex flex-col gap-2 border-b border-border-color">
       {/* Search */}
       <input
+        ref={inputRef}
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Buscar tarea…"
+        placeholder={t('search_placeholder')}
         className="w-full bg-elevated text-text-primary rounded-input px-3 py-1.5 text-sm
           outline-none border border-transparent focus:border-accent transition-colors"
       />

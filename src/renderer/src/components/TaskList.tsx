@@ -1,3 +1,20 @@
+import { useMemo } from 'react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { useTaskStore } from '../store/taskStore'
 import { useListStore } from '../store/listStore'
 import { useUiStore } from '../store/uiStore'
@@ -32,14 +49,22 @@ function applyFiltersAndSort(
     result = result.filter((t) => t.title.toLowerCase().includes(q))
   }
 
-  result.sort((a, b) => {
-    if (sort === 'due_date') {
-      if (!a.due_date && !b.due_date) return 0
-      if (!a.due_date) return 1
-      if (!b.due_date) return -1
-      return a.due_date - b.due_date
+  // Ensure parents of matched subtasks are included so they can be rendered
+  const matchedIds = new Set(result.map(t => t.id))
+  const parentIdsOfMatches = new Set(result.filter(t => t.parent_id).map(t => t.parent_id))
+  
+  for (const parentId of parentIdsOfMatches) {
+    if (!matchedIds.has(parentId!)) {
+      const parentTask = tasks.find(t => t.id === parentId)
+      if (parentTask) result.push(parentTask)
     }
-    if (sort === 'priority') return b.priority - a.priority
+  }
+
+  result.sort((a, b) => {
+    // Manual sort_order takes precedence
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+    
+    // Fallback to creation date if sort_order is the same
     return b.created_at - a.created_at
   })
 
@@ -50,19 +75,44 @@ function applyFiltersAndSort(
 }
 
 export default function TaskList(): JSX.Element {
-  const { tasks, pendingDelete, deleteTimer, setPendingDelete, setDeleteTimer, removeTask } =
+  const { tasks, pendingDelete, deleteTimer, setPendingDelete, setDeleteTimer, removeTask, reorderTasks } =
     useTaskStore()
   const activeListId = useListStore((s) => s.activeListId)
-  const { filter, sort, searchQuery } = useUiStore()
+  const { filter, sort, searchQuery, t } = useUiStore()
 
-  const visible = applyFiltersAndSort(tasks, activeListId, filter, sort, searchQuery)
-  const pending = visible.filter((t) => !t.done)
-  const done = visible.filter((t) => t.done)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const visible = useMemo(
+    () => applyFiltersAndSort(tasks, activeListId, filter, sort, searchQuery),
+    [tasks, activeListId, filter, sort, searchQuery]
+  )
+  
+  // Group main tasks and subtasks
+  const mainTasks = visible.filter((t: Task) => !t.parent_id)
+  const pending = mainTasks.filter((t: Task) => !t.done)
+  const done = mainTasks.filter((t: Task) => t.done)
+
+  const handleDragEnd = (event: DragEndEvent): void => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      reorderTasks(active.id as string, over.id as string)
+    }
+  }
 
   const requestDelete = (task: Task): void => {
     if (deleteTimer) clearTimeout(deleteTimer)
+    const index = useTaskStore.getState().tasks.findIndex(t => t.id === task.id)
     removeTask(task.id)
-    setPendingDelete(task)
+    setPendingDelete(task, index !== -1 ? index : 0)
     const t = setTimeout(async () => {
       await window.api.deleteTask(task.id)
       setPendingDelete(null)
@@ -74,44 +124,78 @@ export default function TaskList(): JSX.Element {
   const undoDelete = (): void => {
     if (!pendingDelete) return
     if (deleteTimer) clearTimeout(deleteTimer)
-    useTaskStore.getState().addTask(pendingDelete)
-    // Re-sort manually would be nice but store will just add at top
-    setPendingDelete(null)
+    useTaskStore.getState().restoreTask()
     setDeleteTimer(null)
   }
 
   if (visible.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-text-secondary text-sm">Sin tareas</p>
+        <p className="text-text-secondary text-sm">{t('no_tasks_message')}</p>
       </div>
     )
   }
 
   return (
     <div className="relative flex-1 overflow-y-auto">
-      <div className="py-2">
-        {pending.map((t) => (
-          <TaskItem key={t.id} task={t} onDeleteRequest={requestDelete} />
-        ))}
-        {done.length > 0 && (
-          <>
-            <div className="px-4 pt-4 pb-1">
-              <span className="text-[10px] text-text-secondary uppercase tracking-wider">
-                Completadas ({done.length})
-              </span>
-            </div>
-            {done.map((t) => (
-              <TaskItem key={t.id} task={t} onDeleteRequest={requestDelete} />
-            ))}
-          </>
-        )}
-      </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+        modifiers={[restrictToVerticalAxis]}
+      >
+        <div className="py-2">
+          <SortableContext items={pending.map((t: Task) => t.id)} strategy={verticalListSortingStrategy}>
+            {pending.map((t: Task) => {
+              const subtasks = visible.filter((st: Task) => st.parent_id === t.id)
+              return (
+                <div key={t.id}>
+                  <TaskItem task={t} onDeleteRequest={requestDelete} />
+                  {subtasks.length > 0 && (
+                    <div className="ml-8 border-l border-text-primary/10">
+                      {subtasks.map((st: Task) => (
+                        <TaskItem key={st.id} task={st} onDeleteRequest={requestDelete} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </SortableContext>
+          
+          {done.length > 0 && (
+            <>
+              <div className="px-4 pt-4 pb-1">
+                <span className="text-[10px] text-text-secondary uppercase tracking-wider">
+                  {t('completed_tasks')} ({done.length})
+                </span>
+              </div>
+              <SortableContext items={done.map((t: Task) => t.id)} strategy={verticalListSortingStrategy}>
+                {done.map((t: Task) => {
+                  const subtasks = visible.filter((st: Task) => st.parent_id === t.id)
+                  return (
+                    <div key={t.id}>
+                      <TaskItem task={t} onDeleteRequest={requestDelete} />
+                      {subtasks.length > 0 && (
+                        <div className="ml-8 border-l border-text-primary/10">
+                          {subtasks.map((st: Task) => (
+                            <TaskItem key={st.id} task={st} onDeleteRequest={requestDelete} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </SortableContext>
+            </>
+          )}
+        </div>
+      </DndContext>
 
       {pendingDelete && (
         <Snackbar
-          message={`"${pendingDelete.title}" eliminada`}
-          actionLabel="Deshacer"
+          message={`"${pendingDelete.title}" ${t('task_deleted_message')}`}
+          actionLabel={t('undo')}
           onAction={undoDelete}
         />
       )}

@@ -8,8 +8,11 @@ import { setupTaskHandlers } from './ipc/tasks'
 import { setupListHandlers } from './ipc/lists'
 import { setupAuthHandlers } from './ipc/auth'
 import { setupSettingsHandlers } from './ipc/settings'
+import { setupDataHandlers } from './ipc/data'
+import { setupMenuHandlers } from './ipc/menu'
 
 let mainWindow: BrowserWindow | null = null
+let widgetWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
@@ -52,9 +55,11 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow!.show())
 
   mainWindow.on('close', (e) => {
-    if (!isQuitting) {
+    if (!isQuitting && process.env.NODE_ENV !== 'development') {
       e.preventDefault()
       mainWindow!.hide()
+    } else if (process.env.NODE_ENV === 'development') {
+      isQuitting = true
     }
   })
 
@@ -65,9 +70,42 @@ function createWindow(): void {
 
   if (process.env.NODE_ENV === 'development' && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    // Abrir consola automáticamente en desarrollo
+    mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function createWidgetWindow(): void {
+  if (widgetWindow) {
+    widgetWindow.focus()
+    return
+  }
+
+  widgetWindow = new BrowserWindow({
+    width: 320,
+    height: 480,
+    resizable: false,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.mjs'),
+      sandbox: false,
+      contextIsolation: true
+    }
+  })
+
+  const url = process.env.NODE_ENV === 'development' && process.env['ELECTRON_RENDERER_URL']
+    ? `${process.env['ELECTRON_RENDERER_URL']}?widget=true`
+    : `file://${join(__dirname, '../renderer/index.html')}?widget=true`
+
+  widgetWindow.loadURL(url)
+  widgetWindow.on('ready-to-show', () => widgetWindow?.show())
+  widgetWindow.on('closed', () => { widgetWindow = null })
 }
 
 function createTray(): void {
@@ -132,7 +170,38 @@ app.whenReady().then(() => {
   setupListHandlers()
   setupAuthHandlers()
   setupSettingsHandlers()
+  setupDataHandlers()
+  setupMenuHandlers()
   ipcMain.handle('app:getVersion', () => app.getVersion())
+  ipcMain.on('app:toggleWidget', () => {
+    if (widgetWindow) {
+      widgetWindow.close()
+    } else {
+      createWidgetWindow()
+    }
+  })
+  ipcMain.handle('app:exportToCalendar', async (_e, task: any) => {
+    const date = task.due_date ? new Date(task.due_date) : new Date()
+    const dateStr = date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+    
+    // Manual ICS generation for speed and reliability
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      `SUMMARY:${task.title}`,
+      `DTSTART:${dateStr}`,
+      `DTEND:${dateStr}`,
+      'DESCRIPTION:Tarea de DarkList',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n')
+
+    const tempDir = app.getPath('temp')
+    const filePath = join(tempDir, `task_${task.id}.ics`)
+    require('fs').writeFileSync(filePath, icsContent)
+    return shell.openPath(filePath)
+  })
   createWindow()
   createTray()
   initNotifications()
@@ -140,6 +209,9 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  if (process.env.NODE_ENV === 'development') {
+    app.quit()
+  }
   // keep running in tray
 })
 
